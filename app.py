@@ -12,52 +12,37 @@ from sklearn.metrics import confusion_matrix, roc_curve, auc
 
 st.set_page_config(page_title="Sonar Rocks vs Mines", page_icon="🌊", layout="wide")
 
-# ---- Load artifacts ----
 @st.cache_resource
 def load_artifacts():
-    model = joblib.load("sonar_model.pkl")   # sklearn Pipeline with scaler + classifier
-    le = joblib.load("label_encoder.pkl")    # LabelEncoder for ['R','M']
+    model = joblib.load("sonar_model.pkl")
+    le = joblib.load("label_encoder.pkl")
     return model, le
 
 model, le = load_artifacts()
 
 st.title("Sonar Rocks vs Mines Classifier")
-st.write("Upload CSV with either 60 features only, or the original Sonar file with 60 features + trailing R/M label.", unsafe_allow_html=False)
+st.write("Upload CSV with either 60 features only, or the original Sonar file with 60 features + trailing R/M label.")
 
-# ---- Helpers ----
 def prepare_features(df_raw: pd.DataFrame):
-    """
-    Returns:
-      df_num: numeric features DataFrame with exactly 60 columns
-      y_true: np.ndarray of encoded labels if present, else None
-      y_true_str: np.ndarray of string labels ['R','M'] if present, else None
-    """
-    # Try to preserve a possible label column before coercion
     y_true_str = None
     if df_raw.shape[1] >= 61:
         last_col = df_raw.iloc[:, -1]
         if last_col.dtype == object:
-            # likely R/M labels
             y_true_str = last_col.astype(str).values
 
-    # Coerce to numeric; label column becomes NaN
     df_num = df_raw.apply(pd.to_numeric, errors="coerce")
 
-    # If 61 columns and last becomes all NaN (R/M), drop it
     if df_num.shape[1] == 61 and df_num.iloc[:, -1].isna().all():
         df_num = df_num.iloc[:, :-1]
-
-    # If more than 60 columns, keep first 60
     if df_num.shape[1] > 60:
         df_num = df_num.iloc[:, :60]
 
-    # Encode labels if we detected R/M
     y_true = None
     if y_true_str is not None and df_num.shape[1] == 60:
         try:
-            y_true = le.transform(y_true_str)  # requires same encoder as training
+            y_true = le.transform(y_true_str)
         except Exception:
-            y_true = None  # if unknown labels or encoder mismatch
+            y_true = None
 
     return df_num, y_true, y_true_str
 
@@ -96,7 +81,6 @@ def plot_roc(y_true, scores):
     return fig
 
 def compute_scores_for_roc(X):
-    # Prefer predict_proba, else use decision_function if available
     if hasattr(model, "predict_proba"):
         try:
             proba = model.predict_proba(X)
@@ -107,7 +91,6 @@ def compute_scores_for_roc(X):
     if hasattr(model, "decision_function"):
         try:
             dec = model.decision_function(X)
-            # Map decision scores to positive-class scores if needed
             if dec.ndim == 1:
                 return dec
             elif dec.ndim == 2 and dec.shape[1] == 2:
@@ -116,7 +99,6 @@ def compute_scores_for_roc(X):
             pass
     return None
 
-# ---- Upload and predict ----
 uploaded = st.file_uploader("Upload CSV (60 features, or 60+label R/M)", type=["csv"])
 
 if uploaded is not None:
@@ -124,7 +106,6 @@ if uploaded is not None:
         raw = pd.read_csv(uploaded, header=None)
         df_num, y_true, y_true_str = prepare_features(raw)
 
-        # Validate numeric shape/values for StandardScaler / pipeline
         if df_num.shape[1] != 60:
             st.error(f"Expected 60 feature columns after cleaning, found {df_num.shape[1]}.")
         elif df_num.isna().any().any() or np.isinf(df_num.to_numpy()).any():
@@ -138,7 +119,6 @@ if uploaded is not None:
             st.subheader("Predictions")
             st.dataframe(pd.DataFrame({"prediction": labels_pred}))
 
-            # ===== EDA section =====
             st.markdown("### EDA")
             c1, c2, c3 = st.columns(3)
 
@@ -180,7 +160,6 @@ if uploaded is not None:
                     ax.set_title("PCA (2 components)")
                     ax.set_xlabel("PC1")
                     ax.set_ylabel("PC2")
-                    # Create a simple legend
                     handles = [plt.Line2D([0], [0], marker='o', color='w',
                                           label=legend_labels[i], markerfacecolor=plt.cm.coolwarm([0,1][i]), markersize=8)
                                for i in range(2)]
@@ -189,7 +168,6 @@ if uploaded is not None:
                 except Exception as e:
                     st.info(f"PCA plot unavailable: {e}")
 
-            # ===== Evaluation (when labels available) =====
             st.markdown("### Evaluation (requires ground-truth labels)")
             if y_true is not None:
                 col_a, col_b = st.columns(2)
@@ -207,13 +185,11 @@ if uploaded is not None:
                         st.pyplot(fig, use_container_width=True)
                     else:
                         st.info("Classifier does not expose probabilities or decision scores; ROC unavailable.")
-
             else:
                 st.info("Ground-truth labels not detected; showing EDA and predictions only.")
     except Exception as e:
         st.error(f"Error processing file: {e}")
 
-# ---- Manual single-sample path ----
 st.markdown("---")
 st.subheader("Or paste a single sample")
 vals = st.text_area("Enter 60 comma-separated values (e.g., 0.02,0.0371,...)", height=100)
